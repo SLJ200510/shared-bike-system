@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员 - 共享单车管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        #adminMap {
+            height: 500px;
+            width: 100%;
+            border-radius: 10px;
+        }
+        .stats-card {
+            margin-bottom: 15px;
+        }
+        .bike-marker-available {
+            background-color: #28a745;
+            color: white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            border: 3px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .bike-marker-rented {
+            background-color: #ffc107;
+            color: white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            border: 3px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .bike-marker-maintenance {
+            background-color: #dc3545;
+            color: white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            border: 3px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .target-marker {
+            background-color: #007bff;
+            color: white;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
+            text-align: center;
+            line-height: 25px;
+            font-weight: bold;
+            border: 3px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .map-legend {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+        .order-details {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .task-item {
+            border-left: 4px solid #007bff;
+            margin-bottom: 10px;
+        }
+        .task-item.repair {
+            border-left-color: #dc3545;
+        }
+        .task-item.dispatch {
+            border-left-color: #28a745;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-success">
+        <div class="container">
+            <a class="navbar-brand" href="#">共享单车管理系统 - 管理员</a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text me-3">欢迎，{{ username }}</span>
+                <a class="btn btn-outline-light btn-sm" href="/logout">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h2>管理员控制台</h2>
+        
+        <!-- 统计信息 -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card stats-card bg-primary text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">车辆总数</h5>
+                        <h2 id="totalBikes">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stats-card bg-success text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">可用车辆</h5>
+                        <h2 id="availableBikes">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stats-card bg-warning text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">租用中</h5>
+                        <h2 id="rentedBikes">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stats-card bg-danger text-white">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">维修中</h5>
+                        <h2 id="maintenanceBikes">0</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">🗺️ 车辆分布地图</h5>
+                        <button class="btn btn-primary btn-sm" onclick="focusOnArea()">
+                            🏙️ 聚焦运行区域
+                        </button>
+                    </div>
+                    <div class="card-body position-relative">
+                        <div id="adminMap"></div>
+                        <div class="map-legend">
+                            <small>
+                                <div><span style="color: #28a745">●</span> 可用</div>
+                                <div><span style="color: #ffc107">●</span> 租用中</div>
+                                <div><span style="color: #dc3545">●</span> 维修中</div>
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <!-- 车辆管理功能 -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">🔧 车辆管理</h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- 删除车辆 -->
+                        <div class="mb-3">
+                            <label class="form-label">删除单车</label>
+                            <select class="form-select" id="deleteBikeSelect">
+                                <option value="">请选择要删除的单车</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-danger w-100 mb-3" onclick="deleteBike()" id="deleteBtn" disabled>
+                            🗑️ 删除选中单车
+                        </button>
+                        
+                        <hr>
+                        
+                        <!-- 创建新车辆 -->
+                        <div class="mb-3">
+                            <label class="form-label">新单车编号</label>
+                            <input type="text" class="form-control" id="newBikeId" placeholder="例如: B013">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">初始位置</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="newBikeLat" placeholder="纬度" step="0.0001">
+                                <input type="number" class="form-control" id="newBikeLng" placeholder="经度" step="0.0001">
+                            </div>
+                            <small class="text-muted">或在地图上点击选择位置</small>
+                        </div>
+                        <button class="btn btn-success w-100" onclick="createNewBike()" id="createBtn" disabled>
+                            ➕ 创建新单车
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 调度功能 -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">🚚 车辆调度</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="dispatchSection">
+                            <div class="mb-3">
+                                <label class="form-label">选择单车</label>
+                                <select class="form-select" id="bikeSelect">
+                                    <option value="">请选择单车</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">目标位置</label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="targetLat" placeholder="纬度" step="0.0001">
+                                    <input type="number" class="form-control" id="targetLng" placeholder="经度" step="0.0001">
+                                </div>
+                                <small class="text-muted">或在地图上点击选择位置</small>
+                            </div>
+                            <button class="btn btn-success w-100" onclick="createDispatch()" id="dispatchBtn" disabled>
+                                创建调度任务
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 最近订单 -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">📋 最近订单</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="order-details">
+                            <div id="recentOrders">
+                                <div class="text-center text-muted">
+                                    加载中...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 订单详情模态框 -->
+    <div class="modal fade" id="orderDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">订单详情</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="orderDetailContent">
+                        <!-- 订单详情内容将通过JavaScript动态填充 -->
+                    </div>
+                    <div id="orderMap" style="height: 300px; margin-top: 15px;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        let adminMap;
+        let bikeMarkers = [];
+        let selectedBike = null;
+        let targetMarker = null;
+
+        // 运行区域边界
+        const areaBounds = {
+            minLat: 34.5000,
+            maxLat: 34.7000,
+            minLng: 112.1667,
+            maxLng: 112.4167
+        };
+
+        // 区域中心点
+        const areaCenter = [34.6000, 112.2917];
+
+        // 自定义图标
+        const createBikeIcon = (status) => {
+            let color, className;
+            switch(status) {
+                case 'available':
+                    color = '#28a745';
+                    className = 'bike-marker-available';
+                    break;
+                case 'rented':
+                    color = '#ffc107';
+                    className = 'bike-marker-rented';
+                    break;
+                case 'maintenance':
+                    color = '#dc3545';
+                    className = 'bike-marker-maintenance';
+                    break;
+            }
+            
+            return L.divIcon({
+                className: className,
+                html: '🚲',
+                iconSize: [30, 30],
+                iconAnchor: [15, 15]
+            });
+        };
+
+        // 初始化地图
+        function initAdminMap() {
+            adminMap = L.map('adminMap').setView(areaCenter, 12);
+            
+            // 使用高德地图
+            L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+                subdomains: ['1', '2', '3', '4'],
+                attribution: '&copy; <a href="https://ditu.amap.com/">高德地图</a>'
+            }).addTo(adminMap);
+
+            // 添加运行区域边界
+            const bounds = L.rectangle([
+                [areaBounds.minLat, areaBounds.minLng],
+                [areaBounds.maxLat, areaBounds.maxLng]
+            ], {
+                color: "#ff7800",
+                weight: 2,
+                fillOpacity: 0.1,
+                dashArray: '5, 5'
+            }).addTo(adminMap);
+            
+            bounds.bindPopup("运行区域范围");
+
+            // 地图点击事件
+            adminMap.on('click', function(e) {
+                const lat = e.latlng.lat;
+                const lng = e.latlng.lng;
+                
+                // 设置调度目标位置
+                setTargetLocation(lat, lng);
+                
+                // 同时设置新车位置
+                document.getElementById('newBikeLat').value = lat.toFixed(6);
+                document.getElementById('newBikeLng').value = lng.toFixed(6);
+                checkCreateReady();
+            });
+
+            loadAllBikes();
+            loadStats();
+            loadRecentOrders();
+        }
+
+        // 聚焦到运行区域
+        function focusOnArea() {
+            adminMap.setView(areaCenter, 11);
+        }
+
+        // 加载所有单车
+        function loadAllBikes() {
+            // 清除现有标记
+            bikeMarkers.forEach(marker => adminMap.removeLayer(marker));
+            bikeMarkers = [];
+            
+            fetch('/api/all_bikes')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        data.bikes.forEach(bike => {
+                            const icon = createBikeIcon(bike.status);
+                            const marker = L.marker([bike.latitude, bike.longitude], { icon: icon })
+                                .addTo(adminMap)
+                                .bindPopup(`
+                                    <div style="min-width: 200px">
+                                        <strong>单车 ${bike.bike_id}</strong><br>
+                                        状态: <span style="color: ${
+                                            bike.status === 'available' ? 'green' : 
+                                            bike.status === 'rented' ? 'orange' : 'red'
+                                        }">
+                                            ${getStatusText(bike.status)}
+                                        </span><br>
+                                        位置: (${bike.latitude.toFixed(4)}, ${bike.longitude.toFixed(4)})<br>
+                                        <button class="btn btn-sm btn-outline-primary mt-1 w-100" onclick="selectBikeForDispatch('${bike.bike_id}')">
+                                            调度这辆车
+                                        </button>
+                                    </div>
+                                `);
+                            
+                            bikeMarkers.push(marker);
+                        });
+
+                        // 更新单车选择下拉框
+                        updateBikeSelect(data.bikes);
+                    }
+                })
+                .catch(error => {
+                    console.error('加载单车数据失败:', error);
+                });
+        }
+
+        // 获取状态文本
+        function getStatusText(status) {
+            switch(status) {
+                case 'available': return '可用';
+                case 'rented': return '租用中';
+                case 'maintenance': return '维修中';
+                default: return status;
+            }
+        }
+
+        // 更新单车选择下拉框
+        function updateBikeSelect(bikes) {
+            const bikeSelect = document.getElementById('bikeSelect');
+            const deleteBikeSelect = document.getElementById('deleteBikeSelect');
+            
+            bikeSelect.innerHTML = '<option value="">请选择单车</option>';
+            deleteBikeSelect.innerHTML = '<option value="">请选择要删除的单车</option>';
+            
+            bikes.forEach(bike => {
+                if (bike.status !== 'rented') { // 不显示租用中的单车用于调度
+                    const option = document.createElement('option');
+                    option.value = bike.bike_id;
+                    option.textContent = `单车 ${bike.bike_id} - ${getStatusText(bike.status)}`;
+                    bikeSelect.appendChild(option);
+                }
+                
+                // 所有单车都可以删除（包括租用中的）
+                const deleteOption = document.createElement('option');
+                deleteOption.value = bike.bike_id;
+                deleteOption.textContent = `单车 ${bike.bike_id} - ${getStatusText(bike.status)}`;
+                deleteBikeSelect.appendChild(deleteOption);
+            });
+            
+            checkDeleteReady();
+            checkCreateReady();
+        }
+
+        // 选择单车进行调度
+        function selectBikeForDispatch(bikeId) {
+            document.getElementById('bikeSelect').value = bikeId;
+            selectedBike = bikeId;
+            checkDispatchReady();
+        }
+
+        // 设置目标位置
+        function setTargetLocation(lat, lng) {
+            document.getElementById('targetLat').value = lat.toFixed(6);
+            document.getElementById('targetLng').value = lng.toFixed(6);
+            
+            // 更新或添加目标位置标记
+            if (targetMarker) {
+                targetMarker.setLatLng([lat, lng]);
+            } else {
+                targetMarker = L.marker([lat, lng], {
+                    icon: L.divIcon({
+                        className: 'target-marker',
+                        html: '📍',
+                        iconSize: [30, 30],
+                        iconAnchor: [15, 30]
+                    })
+                }).addTo(adminMap)
+                .bindPopup('目标位置');
+            }
+            
+            checkDispatchReady();
+        }
+
+        // 检查调度是否就绪
+        function checkDispatchReady() {
+            const bikeId = document.getElementById('bikeSelect').value;
+            const targetLat = document.getElementById('targetLat').value;
+            const targetLng = document.getElementById('targetLng').value;
+            const dispatchBtn = document.getElementById('dispatchBtn');
+            
+            if (bikeId && targetLat && targetLng) {
+                dispatchBtn.disabled = false;
+            } else {
+                dispatchBtn.disabled = true;
+            }
+        }
+
+        // 检查删除是否就绪
+        function checkDeleteReady() {
+            const bikeId = document.getElementById('deleteBikeSelect').value;
+            const deleteBtn = document.getElementById('deleteBtn');
+            deleteBtn.disabled = !bikeId;
+        }
+
+        // 检查创建是否就绪
+        function checkCreateReady() {
+            const bikeId = document.getElementById('newBikeId').value;
+            const lat = document.getElementById('newBikeLat').value;
+            const lng = document.getElementById('newBikeLng').value;
+            const createBtn = document.getElementById('createBtn');
+            
+            createBtn.disabled = !(bikeId && lat && lng);
+        }
+
+        // 创建调度任务
+        function createDispatch() {
+            const bikeId = document.getElementById('bikeSelect').value;
+            const targetLat = parseFloat(document.getElementById('targetLat').value);
+            const targetLng = parseFloat(document.getElementById('targetLng').value);
+            
+            // 获取单车当前位置
+            const bike = bikeMarkers.find(marker => {
+                const popup = marker.getPopup();
+                return popup.getContent().includes(`单车 ${bikeId}`);
+            });
+            
+            if (!bike) {
+                alert('未找到选择的单车');
+                return;
+            }
+            
+            const fromLat = bike.getLatLng().lat;
+            const fromLng = bike.getLatLng().lng;
+            
+            fetch('/api/create_dispatch', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    bike_id: bikeId,
+                    from_lat: fromLat,
+                    from_lng: fromLng,
+                    to_lat: targetLat,
+                    to_lng: targetLng
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('调度任务创建成功！');
+                    // 重置表单
+                    document.getElementById('bikeSelect').value = '';
+                    document.getElementById('targetLat').value = '';
+                    document.getElementById('targetLng').value = '';
+                    document.getElementById('dispatchBtn').disabled = true;
+                    
+                    if (targetMarker) {
+                        adminMap.removeLayer(targetMarker);
+                        targetMarker = null;
+                    }
+                } else {
+                    alert('创建调度任务失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('创建调度任务失败:', error);
+                alert('创建调度任务失败，请重试');
+            });
+        }
+
+        // 删除单车
+        function deleteBike() {
+            const bikeId = document.getElementById('deleteBikeSelect').value;
+            
+            if (!bikeId) {
+                alert('请选择要删除的单车');
+                return;
+            }
+            
+            if (!confirm(`确定要删除单车 ${bikeId} 吗？此操作不可撤销！`)) {
+                return;
+            }
+            
+            fetch('/api/delete_bike', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    bike_id: bikeId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('单车删除成功！');
+                    // 重新加载数据
+                    loadAllBikes();
+                    loadStats();
+                    // 重置选择
+                    document.getElementById('deleteBikeSelect').value = '';
+                } else {
+                    alert('删除失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('删除单车失败:', error);
+                alert('删除单车失败，请重试');
+            });
+        }
+
+        // 创建新单车
+        function createNewBike() {
+            const bikeId = document.getElementById('newBikeId').value.trim();
+            const lat = parseFloat(document.getElementById('newBikeLat').value);
+            const lng = parseFloat(document.getElementById('newBikeLng').value);
+            
+            if (!bikeId) {
+                alert('请输入单车编号');
+                return;
+            }
+            
+            if (!lat || !lng) {
+                alert('请选择单车位置');
+                return;
+            }
+            
+            // 检查是否在运行区域内
+            if (lat < areaBounds.minLat || lat > areaBounds.maxLat || 
+                lng < areaBounds.minLng || lng > areaBounds.maxLng) {
+                alert('单车位置必须在运行区域内！');
+                return;
+            }
+            
+            fetch('/api/create_bike', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    bike_id: bikeId,
+                    latitude: lat,
+                    longitude: lng
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('单车创建成功！');
+                    // 重新加载数据
+                    loadAllBikes();
+                    loadStats();
+                    // 重置表单
+                    document.getElementById('newBikeId').value = '';
+                    document.getElementById('newBikeLat').value = '';
+                    document.getElementById('newBikeLng').value = '';
+                } else {
+                    alert('创建失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('创建单车失败:', error);
+                alert('创建单车失败，请重试');
+            });
+        }
+
+        // 加载统计信息
+        function loadStats() {
+            fetch('/api/admin_stats')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('totalBikes').textContent = data.stats.total_bikes;
+                        document.getElementById('availableBikes').textContent = data.stats.available_bikes;
+                        document.getElementById('rentedBikes').textContent = data.stats.total_bikes - data.stats.available_bikes - data.stats.maintenance_bikes;
+                        document.getElementById('maintenanceBikes').textContent = data.stats.maintenance_bikes;
+                    }
+                })
+                .catch(error => {
+                    console.error('加载统计信息失败:', error);
+                });
+        }
+
+        // 加载最近订单
+        function loadRecentOrders() {
+            fetch('/api/admin_stats')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const ordersContainer = document.getElementById('recentOrders');
+                        if (data.recent_orders.length === 0) {
+                            ordersContainer.innerHTML = '<div class="text-center text-muted">暂无订单</div>';
+                            return;
+                        }
+                        
+                        let ordersHTML = '';
+                        data.recent_orders.forEach(order => {
+                            const startTime = new Date(order.start_time).toLocaleString();
+                            const endTime = order.end_time ? new Date(order.end_time).toLocaleString() : '进行中';
+                            const cost = order.cost ? `¥${order.cost.toFixed(2)}` : '计算中';
+                            
+                            ordersHTML += `
+                                <div class="card mb-2">
+                                    <div class="card-body p-3">
+                                        <h6 class="card-title">订单: ${order.order_id}</h6>
+                                        <p class="card-text mb-1">
+                                            <small>用户: ${order.username}</small><br>
+                                            <small>开始: ${startTime}</small><br>
+                                            <small>结束: ${endTime}</small><br>
+                                            <small>费用: ${cost}</small>
+                                        </p>
+                                        <button class="btn btn-sm btn-outline-info w-100" onclick="showOrderDetail('${order.order_id}')">
+                                            查看详情
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        
+                        ordersContainer.innerHTML = ordersHTML;
+                    }
+                })
+                .catch(error => {
+                    console.error('加载订单失败:', error);
+                    document.getElementById('recentOrders').innerHTML = '<div class="text-center text-danger">加载失败</div>';
+                });
+        }
+
+        // 显示订单详情
+        function showOrderDetail(orderId) {
+            fetch('/api/admin_stats')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const order = data.recent_orders.find(o => o.order_id === orderId);
+                        if (order) {
+                            showOrderDetailModal(order);
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('加载订单详情失败:', error);
+                });
+        }
+
+        // 显示订单详情模态框
+        function showOrderDetailModal(order) {
+            const startTime = new Date(order.start_time).toLocaleString();
+            const endTime = order.end_time ? new Date(order.end_time).toLocaleString() : '进行中';
+            const cost = order.cost ? `¥${order.cost.toFixed(2)}` : '计算中';
+            
+            const content = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>订单编号:</strong> ${order.order_id}</p>
+                        <p><strong>用户名:</strong> ${order.username}</p>
+                        <p><strong>单车编号:</strong> ${order.bike_id}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>开始时间:</strong> ${startTime}</p>
+                        <p><strong>结束时间:</strong> ${endTime}</p>
+                        <p><strong>费用:</strong> ${cost}</p>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <p><strong>起点位置:</strong><br>
+                        纬度: ${order.start_lat.toFixed(6)}<br>
+                        经度: ${order.start_lng.toFixed(6)}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>终点位置:</strong><br>
+                        纬度: ${order.end_lat ? order.end_lat.toFixed(6) : 'N/A'}<br>
+                        经度: ${order.end_lng ? order.end_lng.toFixed(6) : 'N/A'}</p>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('orderDetailContent').innerHTML = content;
+            
+            // 初始化订单地图
+            const orderMap = L.map('orderMap').setView([order.start_lat, order.start_lng], 13);
+            L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+                subdomains: ['1', '2', '3', '4'],
+                attribution: '&copy; <a href="https://ditu.amap.com/">高德地图</a>'
+            }).addTo(orderMap);
+            
+            // 添加起点标记
+            L.marker([order.start_lat, order.start_lng])
+                .addTo(orderMap)
+                .bindPopup('起点')
+                .openPopup();
+            
+            // 如果有终点，添加终点标记
+            if (order.end_lat && order.end_lng) {
+                L.marker([order.end_lat, order.end_lng])
+                    .addTo(orderMap)
+                    .bindPopup('终点');
+            }
+            
+            const modal = new bootstrap.Modal(document.getElementById('orderDetailModal'));
+            modal.show();
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initAdminMap();
+            
+            // 为表单添加事件监听
+            document.getElementById('bikeSelect').addEventListener('change', checkDispatchReady);
+            document.getElementById('targetLat').addEventListener('input', checkDispatchReady);
+            document.getElementById('targetLng').addEventListener('input', checkDispatchReady);
+            
+            // 新增的表单监听
+            document.getElementById('deleteBikeSelect').addEventListener('change', checkDeleteReady);
+            document.getElementById('newBikeId').addEventListener('input', checkCreateReady);
+            document.getElementById('newBikeLat').addEventListener('input', checkCreateReady);
+            document.getElementById('newBikeLng').addEventListener('input', checkCreateReady);
+        });
+    </script>
+</body>
+</html>

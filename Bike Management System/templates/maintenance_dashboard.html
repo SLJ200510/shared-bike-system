@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>维护人员 - 共享单车管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        #taskMap {
+            height: 400px;
+            width: 100%;
+            border-radius: 10px;
+        }
+        .task-item {
+            border-left: 4px solid #007bff;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .task-item.repair {
+            border-left-color: #dc3545;
+        }
+        .task-item.dispatch {
+            border-left-color: #28a745;
+        }
+        .task-item.completed {
+            border-left-color: #6c757d;
+            background: #e9ecef;
+        }
+        .task-list {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .task-badge {
+            font-size: 0.8em;
+        }
+        .map-legend {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-warning">
+        <div class="container">
+            <a class="navbar-brand" href="#">共享单车管理系统 - 维护人员</a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text me-3">欢迎，{{ username }}</span>
+                <a class="btn btn-outline-light btn-sm" href="/logout">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h2>维护任务中心</h2>
+        
+        <ul class="nav nav-tabs mb-4" id="maintenanceTabs">
+            <li class="nav-item">
+                <a class="nav-link active" id="pending-tab" data-bs-toggle="tab" href="#pending">
+                    ⏳ 待处理任务
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" id="completed-tab" data-bs-toggle="tab" href="#completed">
+                    ✅ 已完成任务
+                </a>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+            <!-- 待处理任务标签页 -->
+            <div class="tab-pane fade show active" id="pending">
+                <div class="row">
+                    <div class="col-md-6">
+                        <!-- 维修任务 -->
+                        <div class="card mb-4">
+                            <div class="card-header bg-danger text-white">
+                                <h5 class="card-title mb-0">🔧 维修任务</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="task-list" id="repairTasks">
+                                    <div class="text-center text-muted">
+                                        加载中...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <!-- 调度任务 -->
+                        <div class="card mb-4">
+                            <div class="card-header bg-success text-white">
+                                <h5 class="card-title mb-0">🚚 调度任务</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="task-list" id="dispatchTasks">
+                                    <div class="text-center text-muted">
+                                        加载中...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 已完成任务标签页 -->
+            <div class="tab-pane fade" id="completed">
+                <div class="card">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="card-title mb-0">📋 已完成任务</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="task-list" id="completedTasks">
+                            <div class="text-center text-muted">
+                                暂无已完成的任务
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 任务地图 -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">🗺️ 任务位置地图</h5>
+            </div>
+            <div class="card-body position-relative">
+                <div id="taskMap"></div>
+                <div class="map-legend">
+                    <small>
+                        <div><span style="color: #dc3545">●</span> 维修任务</div>
+                        <div><span style="color: #28a745">●</span> 调度任务</div>
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 任务详情模态框 -->
+    <div class="modal fade" id="taskDetailModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="taskModalTitle">任务详情</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="taskDetailContent">
+                        <!-- 任务详情内容将通过JavaScript动态填充 -->
+                    </div>
+                    <div id="taskActionButtons" class="mt-3">
+                        <!-- 操作按钮将通过JavaScript动态生成 -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        let taskMap;
+        let taskMarkers = [];
+        let currentTasks = {
+            repair: [],
+            dispatch: []
+        };
+
+        // 初始化地图
+        function initTaskMap() {
+            taskMap = L.map('taskMap').setView([34.6000, 112.2917], 12);
+            
+            // 使用高德地图
+            L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+                subdomains: ['1', '2', '3', '4'],
+                attribution: '&copy; <a href="https://ditu.amap.com/">高德地图</a>'
+            }).addTo(taskMap);
+
+            loadTasks();
+        }
+
+        // 加载任务
+        function loadTasks() {
+            fetch('/api/maintenance_tasks')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        currentTasks.repair = data.repair_tasks;
+                        currentTasks.dispatch = data.dispatch_tasks;
+                        displayTasks();
+                        updateTaskMap();
+                    } else {
+                        console.error('加载任务失败');
+                    }
+                })
+                .catch(error => {
+                    console.error('加载任务失败:', error);
+                });
+        }
+
+        // 显示任务
+        function displayTasks() {
+            displayRepairTasks();
+            displayDispatchTasks();
+        }
+
+        // 显示维修任务
+        function displayRepairTasks() {
+            const container = document.getElementById('repairTasks');
+            
+            if (currentTasks.repair.length === 0) {
+                container.innerHTML = '<div class="text-center text-muted">暂无维修任务</div>';
+                return;
+            }
+
+            let html = '';
+            currentTasks.repair.forEach(task => {
+                const createTime = new Date(task.created_at).toLocaleString();
+                
+                html += `
+                    <div class="task-item repair">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="mb-1">单车 ${task.bike_id}</h6>
+                                <p class="mb-1"><small>${task.description}</small></p>
+                                <p class="mb-1"><small>位置: (${task.latitude.toFixed(4)}, ${task.longitude.toFixed(4)})</small></p>
+                                <p class="mb-0"><small>创建时间: ${createTime}</small></p>
+                            </div>
+                            <span class="badge bg-danger task-badge">维修</span>
+                        </div>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-outline-success me-1" onclick="showTaskDetail('${task.task_id}', 'repair')">
+                                查看详情
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        // 显示调度任务
+        function displayDispatchTasks() {
+            const container = document.getElementById('dispatchTasks');
+            
+            if (currentTasks.dispatch.length === 0) {
+                container.innerHTML = '<div class="text-center text-muted">暂无调度任务</div>';
+                return;
+            }
+
+            let html = '';
+            currentTasks.dispatch.forEach(task => {
+                const createTime = new Date(task.created_at).toLocaleString();
+                
+                html += `
+                    <div class="task-item dispatch">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h6 class="mb-1">单车 ${task.bike_id}</h6>
+                                <p class="mb-1"><small>从: (${task.from_lat.toFixed(4)}, ${task.from_lng.toFixed(4)})</small></p>
+                                <p class="mb-1"><small>到: (${task.to_lat.toFixed(4)}, ${task.to_lng.toFixed(4)})</small></p>
+                                <p class="mb-0"><small>创建时间: ${createTime}</small></p>
+                            </div>
+                            <span class="badge bg-success task-badge">调度</span>
+                        </div>
+                        <div class="mt-2">
+                            <button class="btn btn-sm btn-outline-success me-1" onclick="showTaskDetail('${task.task_id}', 'dispatch')">
+                                查看详情
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        // 更新任务地图
+        function updateTaskMap() {
+            // 清除现有标记
+            taskMarkers.forEach(marker => taskMap.removeLayer(marker));
+            taskMarkers = [];
+
+            // 添加维修任务标记
+            currentTasks.repair.forEach(task => {
+                const marker = L.marker([task.latitude, task.longitude])
+                    .addTo(taskMap)
+                    .bindPopup(`
+                        <div style="min-width: 200px">
+                            <strong>维修任务 - 单车 ${task.bike_id}</strong><br>
+                            <small>${task.description}</small><br>
+                            <button class="btn btn-sm btn-success mt-1 w-100" onclick="showTaskDetail('${task.task_id}', 'repair')">
+                                处理任务
+                            </button>
+                        </div>
+                    `);
+                
+                marker._icon.style.backgroundColor = '#dc3545';
+                marker._icon.style.borderRadius = '50%';
+                marker._icon.style.width = '20px';
+                marker._icon.style.height = '20px';
+                
+                taskMarkers.push(marker);
+            });
+
+            // 添加调度任务标记
+            currentTasks.dispatch.forEach(task => {
+                const marker = L.marker([task.from_lat, task.from_lng])
+                    .addTo(taskMap)
+                    .bindPopup(`
+                        <div style="min-width: 200px">
+                            <strong>调度任务 - 单车 ${task.bike_id}</strong><br>
+                            <small>从当前位置调度到目标位置</small><br>
+                            <button class="btn btn-sm btn-success mt-1 w-100" onclick="showTaskDetail('${task.task_id}', 'dispatch')">
+                                处理任务
+                            </button>
+                        </div>
+                    `);
+                
+                marker._icon.style.backgroundColor = '#28a745';
+                marker._icon.style.borderRadius = '50%';
+                marker._icon.style.width = '20px';
+                marker._icon.style.height = '20px';
+                
+                taskMarkers.push(marker);
+            });
+
+            // 调整地图视图以显示所有标记
+            if (taskMarkers.length > 0) {
+                const group = new L.featureGroup(taskMarkers);
+                taskMap.fitBounds(group.getBounds().pad(0.1));
+            }
+        }
+
+        // 显示任务详情
+        function showTaskDetail(taskId, taskType) {
+            let task;
+            if (taskType === 'repair') {
+                task = currentTasks.repair.find(t => t.task_id === taskId);
+            } else {
+                task = currentTasks.dispatch.find(t => t.task_id === taskId);
+            }
+
+            if (!task) return;
+
+            let content = '';
+            let actionButtons = '';
+
+            if (taskType === 'repair') {
+                content = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>任务类型:</strong> <span class="badge bg-danger">维修任务</span></p>
+                            <p><strong>单车编号:</strong> ${task.bike_id}</p>
+                            <p><strong>问题描述:</strong> ${task.description}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>位置坐标:</strong></p>
+                            <p>纬度: ${task.latitude.toFixed(6)}<br>
+                            经度: ${task.longitude.toFixed(6)}</p>
+                            <p><strong>创建时间:</strong><br>${new Date(task.created_at).toLocaleString()}</p>
+                        </div>
+                    </div>
+                `;
+
+                actionButtons = `
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-success" onclick="completeTask('${taskId}', 'repair')">
+                            ✅ 标记为已完成
+                        </button>
+                        <button class="btn btn-secondary" onclick="closeModal()">
+                            ⏳ 稍后处理
+                        </button>
+                    </div>
+                `;
+            } else {
+                content = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>任务类型:</strong> <span class="badge bg-success">调度任务</span></p>
+                            <p><strong>单车编号:</strong> ${task.bike_id}</p>
+                            <p><strong>起始位置:</strong><br>
+                            纬度: ${task.from_lat.toFixed(6)}<br>
+                            经度: ${task.from_lng.toFixed(6)}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>目标位置:</strong><br>
+                            纬度: ${task.to_lat.toFixed(6)}<br>
+                            经度: ${task.to_lng.toFixed(6)}</p>
+                            <p><strong>创建时间:</strong><br>${new Date(task.created_at).toLocaleString()}</p>
+                        </div>
+                    </div>
+                `;
+
+                actionButtons = `
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-success" onclick="completeTask('${taskId}', 'dispatch')">
+                            ✅ 标记为已完成
+                        </button>
+                        <button class="btn btn-secondary" onclick="closeModal()">
+                            ⏳ 稍后处理
+                        </button>
+                    </div>
+                `;
+            }
+
+            document.getElementById('taskModalTitle').textContent = `任务详情 - ${task.bike_id}`;
+            document.getElementById('taskDetailContent').innerHTML = content;
+            document.getElementById('taskActionButtons').innerHTML = actionButtons;
+
+            const modal = new bootstrap.Modal(document.getElementById('taskDetailModal'));
+            modal.show();
+        }
+
+        // 完成任务
+        function completeTask(taskId, taskType) {
+            if (!confirm('确定要标记这个任务为已完成吗？')) {
+                return;
+            }
+
+            fetch('/api/complete_task', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    task_id: taskId,
+                    task_type: taskType
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('任务已完成！');
+                    closeModal();
+                    loadTasks(); // 重新加载任务列表
+                } else {
+                    alert('操作失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('完成任务失败:', error);
+                alert('操作失败，请重试');
+            });
+        }
+
+        // 关闭模态框
+        function closeModal() {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('taskDetailModal'));
+            modal.hide();
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initTaskMap();
+            
+            // 标签页切换时重新加载地图
+            document.getElementById('pending-tab').addEventListener('shown.bs.tab', function() {
+                setTimeout(() => {
+                    taskMap.invalidateSize();
+                }, 100);
+            });
+            
+            document.getElementById('completed-tab').addEventListener('shown.bs.tab', function() {
+                setTimeout(() => {
+                    taskMap.invalidateSize();
+                }, 100);
+            });
+        });
+    </script>
+</body>
+</html>

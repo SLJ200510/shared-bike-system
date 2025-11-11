@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户中心 - 共享单车管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 500px;
+            width: 100%;
+            border-radius: 10px;
+        }
+        .card {
+            margin-bottom: 20px;
+        }
+        .order-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        .bike-marker-available {
+            background-color: #28a745;
+            color: white;
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            text-align: center;
+            line-height: 35px;
+            font-weight: bold;
+            border: 3px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .bike-marker-maintenance {
+            background-color: #dc3545;
+            color: white;
+            border-radius: 50%;
+            width: 35px;
+            height: 35px;
+            text-align: center;
+            line-height: 35px;
+            font-weight: bold;
+            border: 3px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .user-marker {
+            background-color: #007bff;
+            color: white;
+            border-radius: 50%;
+            width: 25px;
+            height: 25px;
+            text-align: center;
+            line-height: 25px;
+            border: 3px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        .map-legend {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1000;
+        }
+        .location-info {
+            background-color: #e9ecef;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">共享单车管理系统</a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text me-3">欢迎，{{ username }}</span>
+                <a class="btn btn-outline-light btn-sm" href="/logout">退出</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <h2>用户服务中心</h2>
+        
+        <!-- 当前订单信息 -->
+        {% if has_active_order %}
+        <div class="alert alert-warning" id="currentOrderAlert">
+            <h5>🚲 当前进行中的订单</h5>
+            <div id="orderInfo">
+                <p>订单号: <strong>{{ current_order_id }}</strong></p>
+                <p>使用时间: <span id="currentDuration">计算中...</span></p>
+                <p>当前费用: <span id="currentCost">计算中...</span>元</p>
+                <button class="btn btn-success btn-sm" onclick="showReturnModal()">还车</button>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">🗺️ 洛阳市涧西区 - 附近单车地图</h5>
+                    </div>
+                    <div class="card-body position-relative">
+                        <div id="map"></div>
+                        <div class="map-legend">
+                            <small>
+                                <div><span style="color: #007bff">●</span> 您的位置</div>
+                                <div><span style="color: #28a745">●</span> 可用单车</div>
+                                <div><span style="color: #dc3545">●</span> 维修中</div>
+                            </small>
+                        </div>
+                        <div class="mt-3">
+                            <button class="btn btn-primary" onclick="getLocation()">
+                                📍 定位我的位置
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="focusOnJianxi()">
+                                🏙️ 聚焦涧西区
+                            </button>
+                            <small class="text-muted ms-2">绿色：可用单车 | 红色：维修中</small>
+                        </div>
+                        
+                        <!-- 地点信息 -->
+                        <div class="location-info mt-3">
+                            <h6>主要单车分布点：</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <small>🚲 河南科技大学西苑校区 (3辆)</small><br>
+                                    <small>🌳 西苑公园 (3辆)</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <small>🏛️ 东方红农耕博物馆 (3辆)</small><br>
+                                    <small>🌲 周山森林公园南门 (3辆)</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">🚲 租车服务</h5>
+                        <p class="card-text">点击地图上的单车标记开始租车</p>
+                        <div class="alert alert-info" id="rentStatus">
+                            {% if not has_active_order %}
+                                <strong>租车说明：</strong><br>
+                                <small>1. 点击地图上的绿色单车</small><br>
+                                <small>2. 选择"租用这辆车"</small><br>
+                                <small>3. 开始计时计费</small>
+                            {% else %}
+                                <strong>您有进行中的订单</strong><br>
+                                <small>请在使用完成后及时还车</small><br>
+                                <small>还车时请在涧西区内</small>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">🔧 车辆报修</h5>
+                        <p class="card-text">报告车辆故障问题</p>
+                        <button class="btn btn-warning" onclick="showRepairModal()">车辆报修</button>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <div class="card-body text-center">
+                        <h5 class="card-title">📋 历史订单</h5>
+                        <p class="card-text">查看您的租车记录</p>
+                        <button class="btn btn-info" onclick="showHistoryModal()">查看历史</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-title">💰 计费标准</h6>
+                        <ul class="list-unstyled small">
+                            <li>• 2元/10分钟</li>
+                            <li>• 实时计费</li>
+                            <li>• 还车时结算</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 还车确认模态框 -->
+    <div class="modal fade" id="returnModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">还车确认</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>确定要还车吗？系统将根据使用时间计算费用。</p>
+                    <div class="alert alert-info">
+                        <strong>注意：</strong>请在洛阳市涧西区内还车，否则还车将失败并继续计费。
+                    </div>
+                    <div id="returnLocationInfo">
+                        <small class="text-muted">当前位置: <span id="currentLocationText">获取中...</span></small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-success" onclick="returnBike()">确认还车</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 车辆报修模态框 -->
+    <div class="modal fade" id="repairModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">车辆报修</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="repairBikeId" class="form-label">单车编号</label>
+                        <input type="text" class="form-control" id="repairBikeId" placeholder="请输入单车编号 (如: B001)">
+                    </div>
+                    <div class="mb-3">
+                        <label for="repairDescription" class="form-label">损坏情况描述</label>
+                        <textarea class="form-control" id="repairDescription" rows="3" placeholder="请详细描述车辆的损坏情况..."></textarea>
+                    </div>
+                    <div class="alert alert-warning">
+                        <small>提交报修后，该单车将暂时不可用，直到维护人员修复完成。</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-warning" onclick="submitRepair()">提交报修</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 历史订单模态框 -->
+    <div class="modal fade" id="historyModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">历史订单</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        历史订单功能正在开发中，敬请期待...
+                    </div>
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>订单号</th>
+                                <th>单车编号</th>
+                                <th>开始时间</th>
+                                <th>结束时间</th>
+                                <th>费用</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td colspan="5" class="text-center text-muted">暂无历史订单数据</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        let map;
+        let userMarker;
+        let bikeMarkers = [];
+        let userLat = 34.655;
+        let userLng = 112.42;
+        let hasActiveOrder = {{ 'true' if has_active_order else 'false' }};
+
+        // 扩大后的洛阳涧西区边界
+        const jianxiBounds = {
+            minLat: 34.5000,
+            maxLat: 34.7000,
+            minLng: 112.1667,
+            maxLng: 112.4167
+        };
+
+        // 涧西区中心点
+        const jianxiCenter = [34.6000, 112.2917];
+
+        // 主要地点坐标
+        const locations = {
+            '河南科技大学西苑校区': [34.6632, 112.4125],
+            '西苑公园': [34.6567, 112.4089],
+            '东方红农耕博物馆': [34.6689, 112.4247],
+            '周山森林公园南门': [34.6458, 112.4356]
+        };
+
+        // 自定义图标
+        const createBikeIcon = (status) => {
+            const color = status === 'available' ? '#28a745' : '#dc3545';
+            const className = status === 'available' ? 'bike-marker-available' : 'bike-marker-maintenance';
+            
+            return L.divIcon({
+                className: className,
+                html: '🚲',
+                iconSize: [35, 35],
+                iconAnchor: [17, 17]
+            });
+        };
+
+        const userIcon = L.divIcon({
+            className: 'user-marker',
+            html: '●',
+            iconSize: [25, 25],
+            iconAnchor: [12, 12]
+        });
+
+        // 初始化地图
+        function initMap() {
+            map = L.map('map').setView(jianxiCenter, 13);
+            
+            // 使用高德地图（街道级详细地图）
+            L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
+                subdomains: ['1', '2', '3', '4'],
+                attribution: '&copy; <a href="https://ditu.amap.com/">高德地图</a>'
+            }).addTo(map);
+
+            // 添加涧西区边界矩形（可视化显示范围）
+            const bounds = L.rectangle([
+                [jianxiBounds.minLat, jianxiBounds.minLng],
+                [jianxiBounds.maxLat, jianxiBounds.maxLng]
+            ], {
+                color: "#ff7800",
+                weight: 2,
+                fillOpacity: 0.1,
+                dashArray: '5, 5'
+            }).addTo(map);
+            
+            bounds.bindPopup(`
+                <strong>洛阳市涧西区范围</strong><br>
+                <small>南北: 34.63°N - 34.68°N</small><br>
+                <small>东西: 112.38°E - 112.45°E</small><br>
+                <small>在此区域内可正常还车</small>
+            `);
+
+            // 添加主要地点标记
+            addLocationMarkers();
+
+            loadNearbyBikes();
+            
+            // 每30秒更新一次单车位置（如果用户正在租车）
+            if (hasActiveOrder) {
+                setInterval(updateCurrentOrder, 30000);
+                setInterval(updateCurrentOrderInfo, 5000);
+            }
+
+            // 初始定位
+            setTimeout(getLocation, 1000);
+        }
+
+        // 添加主要地点标记
+        function addLocationMarkers() {
+            Object.keys(locations).forEach(locationName => {
+                const [lat, lng] = locations[locationName];
+                L.marker([lat, lng])
+                    .addTo(map)
+                    .bindPopup(`
+                        <strong>${locationName}</strong><br>
+                        <small>主要单车分布点</small><br>
+                        <small>经纬度: (${lat.toFixed(4)}, ${lng.toFixed(4)})</small>
+                    `);
+            });
+        }
+
+        // 聚焦到涧西区
+        function focusOnJianxi() {
+            map.setView(jianxiCenter, 13);
+        }
+
+        // 获取用户位置
+        function getLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    function(position) {
+                        userLat = position.coords.latitude;
+                        userLng = position.coords.longitude;
+                        
+                        // 检查是否在涧西区内
+                        const inJianxi = checkInJianxi(userLat, userLng);
+                        
+                        // 更新地图中心
+                        map.setView([userLat, userLng], 15);
+                        
+                        // 更新或添加用户位置标记
+                        if (userMarker) {
+                            userMarker.setLatLng([userLat, userLng]);
+                        } else {
+                            userMarker = L.marker([userLat, userLng], { icon: userIcon })
+                                .addTo(map)
+                                .bindPopup(`
+                                    <strong>您的位置</strong><br>
+                                    经纬度: (${userLat.toFixed(4)}, ${userLng.toFixed(4)})<br>
+                                    ${inJianxi ? 
+                                        '<span style="color: green">✓ 在涧西区内</span>' : 
+                                        '<span style="color: red">✗ 不在涧西区内</span>'
+                                    }
+                                `)
+                                .openPopup();
+                        }
+                        
+                        // 更新还车模态框中的位置信息
+                        updateReturnLocationInfo(userLat, userLng, inJianxi);
+                        
+                        // 重新加载附近单车
+                        loadNearbyBikes();
+                    },
+                    function(error) {
+                        console.log('获取位置失败，使用默认位置:', error);
+                        // 使用默认位置（涧西区中心）
+                        userLat = jianxiCenter[0];
+                        userLng = jianxiCenter[1];
+                        
+                        if (!userMarker) {
+                            userMarker = L.marker([userLat, userLng], { icon: userIcon })
+                                .addTo(map)
+                                .bindPopup('您的位置（默认）')
+                                .openPopup();
+                        }
+                        
+                        updateReturnLocationInfo(userLat, userLng, true);
+                        loadNearbyBikes();
+                    }
+                );
+            } else {
+                alert('浏览器不支持地理位置服务');
+            }
+        }
+
+        // 检查是否在涧西区内
+        function checkInJianxi(lat, lng) {
+            return lat >= jianxiBounds.minLat && lat <= jianxiBounds.maxLat &&
+                   lng >= jianxiBounds.minLng && lng <= jianxiBounds.maxLng;
+        }
+
+        // 更新还车位置信息
+        function updateReturnLocationInfo(lat, lng, inJianxi) {
+            const locationText = `${lat.toFixed(4)}, ${lng.toFixed(4)} ${inJianxi ? '✓ 在涧西区内' : '✗ 不在涧西区内'}`;
+            document.getElementById('currentLocationText').textContent = locationText;
+            
+            if (inJianxi) {
+                document.getElementById('currentLocationText').style.color = 'green';
+            } else {
+                document.getElementById('currentLocationText').style.color = 'red';
+            }
+        }
+
+        // 加载附近单车
+        function loadNearbyBikes() {
+            // 清除现有单车标记
+            bikeMarkers.forEach(marker => map.removeLayer(marker));
+            bikeMarkers = [];
+            
+            fetch(`/api/nearby_bikes?lat=${userLat}&lng=${userLng}`)
+                .then(response => response.json())
+                .then(bikes => {
+                    bikes.forEach(bike => {
+                        const icon = createBikeIcon(bike.status);
+                        const marker = L.marker([bike.latitude, bike.longitude], { icon: icon })
+                            .addTo(map)
+                            .bindPopup(`
+                                <div style="min-width: 200px">
+                                    <strong>单车 ${bike.bike_id}</strong><br>
+                                    状态: <span style="color: ${bike.status === 'available' ? 'green' : 'red'}">
+                                        ${bike.status === 'available' ? '可用' : '维修中'}
+                                    </span><br>
+                                    位置: (${bike.latitude.toFixed(4)}, ${bike.longitude.toFixed(4)})<br>
+                                    ${!hasActiveOrder && bike.status === 'available' ? 
+                                        `<button class="btn btn-sm btn-primary mt-1 w-100" onclick="rentBike('${bike.bike_id}')">
+                                            🚲 租用这辆车
+                                        </button>` : 
+                                        ''
+                                    }
+                                </div>
+                            `);
+                        
+                        bikeMarkers.push(marker);
+                    });
+                })
+                .catch(error => {
+                    console.error('加载单车数据失败:', error);
+                });
+        }
+
+        // 租用单车
+        function rentBike(bikeId) {
+            if (hasActiveOrder) {
+                alert('您已有进行中的订单，请先还车');
+                return;
+            }
+            
+            fetch('/api/rent_bike', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    bike_id: bikeId,
+                    lat: userLat,
+                    lng: userLng
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('租车成功！订单号: ' + data.order_id);
+                    hasActiveOrder = true;
+                    location.reload();
+                } else {
+                    alert('租车失败: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('租车请求失败:', error);
+                alert('租车请求失败，请重试');
+            });
+        }
+
+        // 显示还车确认模态框
+        function showReturnModal() {
+            getLocation(); // 更新最新位置
+            const modal = new bootstrap.Modal(document.getElementById('returnModal'));
+            modal.show();
+        }
+
+        // 还车
+        function returnBike() {
+            fetch('/api/return_bike', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    lat: userLat,
+                    lng: userLng
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                    hasActiveOrder = false;
+                    location.reload();
+                } else {
+                    alert(data.message);
+                }
+                
+                const modal = bootstrap.Modal.getInstance(document.getElementById('returnModal'));
+                modal.hide();
+            })
+            .catch(error => {
+                console.error('还车请求失败:', error);
+                alert('还车请求失败，请重试');
+            });
+        }
+
+        // 显示报修模态框
+        function showRepairModal() {
+            const modal = new bootstrap.Modal(document.getElementById('repairModal'));
+            modal.show();
+        }
+
+        // 提交报修
+        function submitRepair() {
+            const bikeId = document.getElementById('repairBikeId').value;
+            const description = document.getElementById('repairDescription').value;
+            
+            if (!bikeId) {
+                alert('请输入单车编号');
+                return;
+            }
+            
+            if (!description) {
+                alert('请输入损坏情况描述');
+                return;
+            }
+            
+            alert(`报修提交成功！\n单车编号: ${bikeId}\n我们将尽快处理。`);
+            
+            // 清空表单
+            document.getElementById('repairBikeId').value = '';
+            document.getElementById('repairDescription').value = '';
+            
+            const modal = bootstrap.Modal.getInstance(document.getElementById('repairModal'));
+            modal.hide();
+        }
+
+        // 显示历史订单模态框
+        function showHistoryModal() {
+            const modal = new bootstrap.Modal(document.getElementById('historyModal'));
+            modal.show();
+        }
+
+        // 更新当前订单信息
+        function updateCurrentOrderInfo() {
+            if (!hasActiveOrder) return;
+            
+            fetch('/api/current_order')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('currentDuration').textContent = data.duration.toFixed(1) + '分钟';
+                        document.getElementById('currentCost').textContent = data.current_cost.toFixed(2);
+                    }
+                });
+        }
+
+        // 更新当前订单位置
+        function updateCurrentOrder() {
+            if (!hasActiveOrder) return;
+            getLocation();
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+            if (hasActiveOrder) {
+                updateCurrentOrderInfo();
+            }
+        });
+    </script>
+</body>
+</html>
